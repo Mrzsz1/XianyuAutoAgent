@@ -53,6 +53,14 @@ class XianyuLive:
         
         # 人工接管关键词，从环境变量读取
         self.toggle_keywords = os.getenv("TOGGLE_KEYWORDS", "。")
+
+        # 运行中重载提示词关键词（卖家自己发送触发）
+        reload_kw_raw = os.getenv("RELOAD_PROMPT_KEYWORDS", "重载提示词,/reload,reload")
+        self.reload_prompt_keywords = [
+            k.strip().lower()
+            for k in reload_kw_raw.replace("，", ",").split(",")
+            if k.strip()
+        ]
         
         # 模拟人工输入配置
         self.simulate_human_typing = os.getenv("SIMULATE_HUMAN_TYPING", "False").lower() == "true"
@@ -265,6 +273,13 @@ class XianyuLive:
         message_stripped = message.strip()
         return message_stripped in self.toggle_keywords
 
+    def check_reload_prompt_keywords(self, message: str) -> bool:
+        """检查是否为重载提示词命令（卖家消息）"""
+        if not message:
+            return False
+        msg = message.strip().lower()
+        return msg in self.reload_prompt_keywords
+
     def is_manual_mode(self, chat_id):
         """检查特定会话是否处于人工接管模式"""
         if chat_id not in self.manual_mode_conversations:
@@ -465,6 +480,15 @@ class XianyuLive:
                         logger.info(f"🔴 已接管会话 {chat_id} (商品: {item_id})")
                     else:
                         logger.info(f"🟢 已恢复会话 {chat_id} 的自动回复 (商品: {item_id})")
+                    return
+
+                # 检查重载提示词命令
+                if self.check_reload_prompt_keywords(send_message):
+                    try:
+                        bot.reload_prompts()
+                        logger.info("✅ 已重载 prompts 目录下的提示词（无需重启进程）")
+                    except Exception as e:
+                        logger.error(f"❌ 重载提示词失败: {e}")
                     return
                 
                 # 记录卖家人工回复

@@ -72,6 +72,7 @@ MODEL_NAME=模型名称
 #可选配置
 MODEL_DEFAULT_HEADERS=自定义请求头JSON（公益站/WAF场景可加UA），例如：{"User-Agent":"Mozilla/5.0"}
 TOGGLE_KEYWORDS=接管模式切换关键词，默认为句号（输入句号切换为人工接管，再次输入则切换AI接管）
+RELOAD_PROMPT_KEYWORDS=运行中重载提示词关键词（卖家自己发送触发），默认：重载提示词,/reload,reload
 SIMULATE_HUMAN_TYPING=True/False #模拟人工回复延迟
 
 注意：默认使用的模型是通义千问，如需使用其他API，请自行修改.env文件中的模型地址和模型名称；OpenAI-compatible 的服务通常需要把 `MODEL_BASE_URL` 配到以 `/v1` 结尾（例如 `https://xx.com/v1`）。
