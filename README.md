@@ -126,22 +126,6 @@ python main.py
   </table>
 </div>
 
-## 💼 寻找机会
-
-### <a href="https://github.com/shaxiu">@Shaxiu</a>
-**🔍寻求方向**：**AI产品经理**  
-**📫 联系：** **email**:coderxiu@qq.com；**wx:** coderxiu
-
-### <a href="https://github.com/cv-cat">@CVcat</a>
-**🔍寻求方向**：**研发工程师**（python、java、逆向、爬虫）  
-**📫 联系：** **email:** 992822653@qq.com；**wx:** CVZC15751076989
-## ☕ 请喝咖啡
-您的☕和⭐将助力项目持续更新：
-
-<div align="center">
-  <img src="./images/wechat_pay.jpg" width="400px" alt="微信赞赏码"> 
-  <img src="./images/alipay.jpg" width="400px" alt="支付宝收款码">
-</div>
 
 
 ## 📈 Star 趋势
