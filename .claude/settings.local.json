@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(curl:*)",
+      "Bash(for model in \"gpt-4o\" \"gpt-4-turbo\" \"gpt-3.5-turbo\" \"claude-3-sonnet\")",
+      "Bash(do:*)",
+      "Bash(echo:*)",
+      "Bash(done)"
+    ]
+  }
+}

@@ -548,7 +548,7 @@ class XianyuLive:
             await self.send_msg(websocket, chat_id, send_user_id, bot_reply)
             
         except Exception as e:
-            logger.error(f"处理消息时发生错误: {str(e)}")
+            logger.exception(f"处理消息时发生错误: {str(e)}")
             logger.debug(f"原始消息: {message_data}")
 
     async def send_heartbeat(self, ws):

@@ -1,16 +1,38 @@
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 import os
+import json
+from urllib.parse import urlparse, urlunparse
 from openai import OpenAI
 from loguru import logger
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    OpenAIError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 
 
 class XianyuReplyBot:
     def __init__(self):
+        base_url = _normalize_openai_compatible_base_url(
+            os.getenv("MODEL_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        )
+        default_headers = _load_default_headers_from_env()
+
         # 初始化OpenAI客户端
         self.client = OpenAI(
             api_key=os.getenv("API_KEY"),
-            base_url=os.getenv("MODEL_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            base_url=base_url,
+            default_headers=default_headers,
+        )
+        logger.info(
+            f"LLM 配置: base_url={base_url}, model={os.getenv('MODEL_NAME', 'qwen-max')}, "
+            f"extra_headers={'on' if default_headers else 'off'}"
         )
         self._init_system_prompts()
         self._init_agents()
@@ -221,14 +243,22 @@ class BaseAgent:
 
     def _call_llm(self, messages: List[Dict], temperature: float = 0.4) -> str:
         """调用大模型"""
-        response = self.client.chat.completions.create(
+        response = self._create_chat_completion(
             model=os.getenv("MODEL_NAME", "qwen-max"),
             messages=messages,
             temperature=temperature,
             max_tokens=500,
-            top_p=0.8
+            top_p=0.8,
         )
         return response.choices[0].message.content
+
+    def _create_chat_completion(self, **kwargs):
+        try:
+            return self.client.chat.completions.create(**kwargs)
+        except (BadRequestError, AuthenticationError, PermissionDeniedError, RateLimitError, APITimeoutError, APIConnectionError, APIStatusError) as e:
+            raise RuntimeError(_format_openai_error(e)) from e
+        except OpenAIError as e:
+            raise RuntimeError(f"LLM 请求失败: {e}") from e
 
 
 class PriceAgent(BaseAgent):
@@ -240,7 +270,7 @@ class PriceAgent(BaseAgent):
         messages = self._build_messages(user_msg, item_desc, context)
         messages[0]['content'] += f"\n▲当前议价轮次：{bargain_count}"
 
-        response = self.client.chat.completions.create(
+        response = self._create_chat_completion(
             model=os.getenv("MODEL_NAME", "qwen-max"),
             messages=messages,
             temperature=dynamic_temp,
@@ -261,7 +291,7 @@ class TechAgent(BaseAgent):
         messages = self._build_messages(user_msg, item_desc, context)
         # messages[0]['content'] += "\n▲知识库：\n" + self._fetch_tech_specs()
 
-        response = self.client.chat.completions.create(
+        response = self._create_chat_completion(
             model=os.getenv("MODEL_NAME", "qwen-max"),
             messages=messages,
             temperature=0.4,
@@ -295,3 +325,87 @@ class DefaultAgent(BaseAgent):
         """限制默认回复长度"""
         response = super()._call_llm(messages, temperature=0.7)
         return response
+
+
+def _normalize_openai_compatible_base_url(raw: str) -> str:
+    """
+    兼容常见的 OpenAI-compatible 服务：
+    - 用户只填了域名（https://xx.com 或 https://xx.com/）时，自动补全为 /v1
+    - 已包含路径（如 /compatible-mode/v1、/api/openai/v1 等）则不改动
+    """
+    if not raw:
+        return raw
+    parsed = urlparse(raw)
+    if parsed.scheme and parsed.netloc and parsed.path in ("", "/"):
+        new_parsed = parsed._replace(path="/v1")
+        normalized = urlunparse(new_parsed).rstrip("/")
+        if normalized != raw.rstrip("/"):
+            logger.warning(f"MODEL_BASE_URL 看起来缺少 /v1，已自动规范化为: {normalized}")
+        return normalized
+    return raw.rstrip("/")
+
+
+def _load_default_headers_from_env() -> Optional[Dict[str, str]]:
+    """
+    允许为一些公益站/反爬/WAF 场景添加自定义请求头（比如 User-Agent）。
+    用法：
+      MODEL_DEFAULT_HEADERS='{\"User-Agent\":\"Mozilla/5.0\",\"Accept\":\"application/json\"}'
+    """
+    raw = os.getenv("MODEL_DEFAULT_HEADERS")
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in data.items()):
+            raise ValueError("MODEL_DEFAULT_HEADERS 必须是 {string:string} 的 JSON 对象")
+        return data
+    except Exception as e:
+        logger.warning(f"解析 MODEL_DEFAULT_HEADERS 失败，将忽略该配置: {e}")
+        return None
+
+
+def _format_openai_error(e: Exception) -> str:
+    base_url = os.getenv("MODEL_BASE_URL", "")
+    model_name = os.getenv("MODEL_NAME", "")
+
+    parts: List[str] = []
+    hint: List[str] = []
+
+    if isinstance(e, APIStatusError):
+        try:
+            status = e.response.status_code
+            url = str(getattr(e.response.request, "url", ""))
+            parts.append(f"status={status}")
+            if url:
+                parts.append(f"url={url}")
+        except Exception:
+            pass
+
+        body = getattr(e, "body", None)
+        if isinstance(body, dict):
+            msg = body.get("error", {}).get("message") if isinstance(body.get("error"), dict) else None
+            if msg:
+                parts.append(f"message={msg}")
+
+        # 常见：公益站/Cloudflare/WAF 拦截
+        hint.append("常见原因：公益站/WAF 拦截、IP/UA 被封、或 MODEL_BASE_URL 填到了站点根路径而非 /v1")
+
+    elif isinstance(e, (APIConnectionError, APITimeoutError)):
+        hint.append("常见原因：网络不可达、代理/证书问题、服务端超时")
+    elif isinstance(e, AuthenticationError):
+        hint.append("常见原因：API_KEY 无效/过期，或服务端不接受该 Key")
+    elif isinstance(e, PermissionDeniedError):
+        hint.append("常见原因：Key 权限不足、模型不可用、或服务端策略拒绝")
+    elif isinstance(e, RateLimitError):
+        hint.append("常见原因：触发限流/并发限制")
+    elif isinstance(e, BadRequestError):
+        hint.append("常见原因：请求参数不兼容（模型名、extra_body、max_tokens 等）")
+
+    if base_url:
+        hint.append(f"当前 MODEL_BASE_URL={base_url}")
+    if model_name:
+        hint.append(f"当前 MODEL_NAME={model_name}")
+    hint.append("可尝试：把 MODEL_BASE_URL 写成 https://你的域名/v1；或设置 MODEL_DEFAULT_HEADERS 添加浏览器 UA")
+
+    detail = ", ".join(parts) if parts else str(e)
+    return f"LLM 请求失败: {detail}. " + "；".join(hint)
